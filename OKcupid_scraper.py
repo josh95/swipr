@@ -4,9 +4,11 @@ import time
 import requests
 import json
 import os
+import pymongo
 #I am just a regular human looking for a regular human companion. I am definitely
 #not a robot.
 
+client = pymongo.MongoClient('localhost', 27017)
 
 def get_credentials():
     credentials = open("credentials.txt", "r").read()
@@ -16,30 +18,48 @@ def get_credentials():
 def download_image(url, personName, index):
     #given a url to an image and the person's id, download it to our pictures directory.
     r = requests.get(url, allow_redirects=True)
-    try:
-        os.mkdir('pictures/' + personName)
-    except:
-        print("directory " + personName +" already exists")
-    
     open('pictures/' + personName + "/" + str(index) + ".jpeg", 'wb').write(r.content)
 
 def checkNewPerson(matchid):
     #checks if a person's matchId is already in our DB. Returns true if a new person
+    db = client.okcupid
+    collection = db.users
+    if collection.find({"_id": matchid}).count() > 0:
+        return False
     return True
 
-def get_imgurls(browser, profileURL, matchid):
-    #navigate to profile page and collect img urls for each of that person's photos
+def get_person_data(browser, profileURL, matchid):
+    #navigate to profile page and collect img urls for each of that person's photos and some metadata
     browser.get(profileURL)
     browser.implicitly_wait(2)
     browser.find_element_by_class_name("userinfo2015-thumb").click()
-
     photos = browser.find_element_by_id("photo_overlay_photos").find_elements_by_tag_name("img")
+    
+    try:
+        os.mkdir('pictures/' + personName)
+    except:
+        print("directory " + personName +" already exists")
+        
     for index, photo in enumerate (photos):
         image = photo.get_attribute("src")
         print(image)
         if image is not None:
-            download_image(image,matchid, index)
+            download_image(image, matchid, index)
 
+    #get metadata
+    name = browser.find_element_by_class_name("userinfo2015-basics-username").text
+    rawText = browser.find_element_by_class_name("details2015-section").text
+    cleanedData = rawText.split("\n")[1].split(",")
+
+    db = client.okcupid
+    collection = db.users
+    collection.save({"_id": matchid,
+                     "name": name,
+                     "orientation": cleanedData[0],
+                     "gender": cleanedData[1],
+                     "status": cleanedData[2]
+                     
+        })
         
 
 def run_bot():
@@ -79,7 +99,7 @@ def run_bot():
                 if checkNewPerson(matchid):
                     image = person.find_element_by_tag_name("img").get_attribute("src")
                     profile_url = person.find_element_by_class_name("image_link").get_attribute("href")
-                    get_imgurls(browser, profile_url, matchid)
+                    get_person_data(browser, profile_url, matchid)
                     break
         except Exception as e:
             print(e)
